@@ -5,13 +5,17 @@ import (
 )
 
 func main() {
-	server := &Server{
-		Addr: ":8080",
-		Mux:  http.NewServeMux(),
-	}
+	mux := http.NewServeMux()
 
-	fileServer := http.FileServer(http.Dir("."))
-	server.Mux.Handle("/", fileServer)
+	// Register /healthz handler directly
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
 
-	http.ListenAndServe(server.Addr, server.Mux)
+	fileServer := http.StripPrefix("/app", http.FileServer(http.Dir("./app")))
+	mux.Handle("/app/", fileServer)
+
+	http.ListenAndServe(":8080", mux)
 }
