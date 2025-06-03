@@ -1,21 +1,50 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"os"
 )
 
 func main() {
+	cfg := &apiConfig{}
+
 	mux := http.NewServeMux()
 
-	// Register /healthz handler directly
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 
+	mux.HandleFunc("GET /admin/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		data, err := os.ReadFile("admin/metrics.html")
+		if err != nil {
+			http.Error(w, "Could not read metrics.html", http.StatusInternalServerError)
+			return
+		}
+		html := fmt.Sprintf(string(data), cfg.fileserverHits.Load())
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(html))
+	})
+
+	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
+		cfg.fileserverHits.Store(0)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Metrics reset"))
+	})
+
 	fileServer := http.StripPrefix("/app", http.FileServer(http.Dir("./app")))
-	mux.Handle("/app/", fileServer)
+	mux.Handle("/app/", cfg.middlewareMetricsInc(fileServer))
 
 	http.ListenAndServe(":8080", mux)
+}
+
+func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg.fileserverHits.Add(1)
+		next.ServeHTTP(w, r)
+	})
 }
