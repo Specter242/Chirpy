@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 )
@@ -34,6 +35,19 @@ func main() {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Metrics reset"))
+	})
+
+	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Something went wrong")
+			return
+		}
+		if len(body) > 140 {
+			respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+			return
+		}
+		respondWithJSON(w, http.StatusOK, []byte(`{"valid": true}`))
 	})
 
 	fileServer := http.StripPrefix("/app", http.FileServer(http.Dir("./app")))
