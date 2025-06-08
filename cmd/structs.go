@@ -3,6 +3,10 @@ package main
 import (
 	"net/http"
 	"sync/atomic"
+	"time"
+
+	"github.com/Specter242/Chirpy/cmd/internal/database"
+	"github.com/google/uuid"
 )
 
 type Server struct {
@@ -13,4 +17,13 @@ type Server struct {
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	dbqueries      *database.Queries
+	platform       string
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
 }
