@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/Specter242/Chirpy/cmd/internal/database"
+	"github.com/google/uuid"
 )
 
 func respondWithError(w http.ResponseWriter, status int, message string) {
@@ -59,29 +62,123 @@ func (cfg *apiConfig) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) handleResetMetrics(w http.ResponseWriter, r *http.Request) {
 	cfg.fileserverHits.Store(0)
+	if err := cfg.dbqueries.Reset(r.Context()); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not reset metrics")
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Metrics reset"))
 }
 
-func (cfg *apiConfig) handleValidateChirp(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) handleChirps(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Body   string    `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
+	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Something went wrong")
 		return
 	}
-	if len(body) > 140 {
-		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
-		return
-	}
-	var req struct {
-		Body string `json:"body"`
-	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid JSON format")
 		return
 	}
-	cleaned_body := badWordReplace(req.Body)
-	jsonResponse := fmt.Sprintf(`{"valid": true, "cleaned_body": "%s"}`, cleaned_body)
-	respondWithJSON(w, http.StatusOK, []byte(jsonResponse))
+	if len(req.Body) > 140 {
+		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+		return
+	}
+	cleanedBody := badWordReplace(req.Body)
+	dbChirp, err := cfg.dbqueries.CreateChirp(r.Context(), database.CreateChirpParams{
+		Body:   cleanedBody,
+		UserID: req.UserID,
+	})
+	if err != nil {
+		fmt.Println("Error creating chirp:", err)
+		respondWithError(w, http.StatusInternalServerError, "Could not create chirp")
+		return
+	}
+
+	chirp := Chirp{
+		ID:        dbChirp.ID,
+		Body:      dbChirp.Body,
+		UserID:    dbChirp.UserID,
+		CreatedAt: dbChirp.CreatedAt.Time,
+		UpdatedAt: dbChirp.UpdatedAt.Time,
+	}
+
+	resp, err := json.Marshal(chirp)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not marshal chirp")
+		return
+	}
+	respondWithJSON(w, http.StatusCreated, resp)
+}
+
+func (cfg *apiConfig) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON format")
+		return
+	}
+	if req.Email == "" {
+		respondWithError(w, http.StatusBadRequest, "Email is required")
+		return
+	}
+
+	dbUser, err := cfg.dbqueries.CreateUser(r.Context(), req.Email)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key value") {
+			respondWithError(w, http.StatusConflict, "Email already exists")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Could not create user")
+		return
+	}
+
+	user := User{
+		ID:        dbUser.ID,
+		Email:     dbUser.Email,
+		CreatedAt: dbUser.CreatedAt.Time,
+		UpdatedAt: dbUser.UpdatedAt.Time,
+	}
+
+	resp, err := json.Marshal(user)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not marshal user")
+		return
+	}
+	respondWithJSON(w, http.StatusCreated, resp)
+}
+
+func (cfg *apiConfig) handleGetChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.dbqueries.GetAllChirps(r.Context(), database.GetAllChirpsParams{
+		Limit:  100,
+		Offset: 0,
+	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirps")
+		return
+	}
+
+	var response []Chirp
+	for _, dbChirp := range chirps {
+		response = append(response, Chirp{
+			ID:        dbChirp.ID,
+			CreatedAt: dbChirp.CreatedAt.Time,
+			UpdatedAt: dbChirp.UpdatedAt.Time,
+			Body:      dbChirp.Body,
+			UserID:    dbChirp.UserID,
+		})
+	}
+
+	resp, err := json.Marshal(response)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not marshal chirps")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, resp)
 }

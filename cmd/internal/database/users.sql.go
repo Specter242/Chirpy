@@ -7,6 +7,9 @@ package database
 
 import (
 	"context"
+	"database/sql"
+
+	"github.com/google/uuid"
 )
 
 const createChirp = `-- name: CreateChirp :one
@@ -23,7 +26,7 @@ RETURNING id, created_at, updated_at, body, user_id
 
 type CreateChirpParams struct {
 	Body   string
-	UserID int32
+	UserID uuid.UUID
 }
 
 func (q *Queries) CreateChirp(ctx context.Context, arg CreateChirpParams) (Chirp, error) {
@@ -47,7 +50,7 @@ VALUES (
     NOW(),
     $1
 )
-RETURNING id, email, created_at, updated_at
+RETURNING id, created_at, updated_at, email
 `
 
 func (q *Queries) CreateUser(ctx context.Context, email string) (User, error) {
@@ -55,15 +58,65 @@ func (q *Queries) CreateUser(ctx context.Context, email string) (User, error) {
 	var i User
 	err := row.Scan(
 		&i.ID,
-		&i.Email,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Email,
 	)
 	return i, err
 }
 
+const getAllChirps = `-- name: GetAllChirps :many
+SELECT c.id, c.created_at, c.updated_at, c.body, u.id AS user_id
+FROM chirps c
+JOIN users u ON c.user_id = u.id
+ORDER BY c.created_at ASC
+LIMIT $1 OFFSET $2
+`
+
+type GetAllChirpsParams struct {
+	Limit  int32
+	Offset int32
+}
+
+type GetAllChirpsRow struct {
+	ID        uuid.UUID
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+	Body      string
+	UserID    uuid.UUID
+}
+
+func (q *Queries) GetAllChirps(ctx context.Context, arg GetAllChirpsParams) ([]GetAllChirpsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getAllChirps, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAllChirpsRow
+	for rows.Next() {
+		var i GetAllChirpsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Body,
+			&i.UserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reset = `-- name: Reset :exec
-TRUNCATE TABLE users RESTART IDENTITY
+TRUNCATE TABLE chirps, users RESTART IDENTITY CASCADE
 `
 
 func (q *Queries) Reset(ctx context.Context) error {
