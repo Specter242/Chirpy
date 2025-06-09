@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -178,6 +179,45 @@ func (cfg *apiConfig) handleGetChirps(w http.ResponseWriter, r *http.Request) {
 	resp, err := json.Marshal(response)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could not marshal chirps")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, resp)
+}
+
+func (cfg *apiConfig) handleGetChirpByID(w http.ResponseWriter, r *http.Request) {
+	chirpID := strings.TrimPrefix(r.URL.Path, "/api/chirps/")
+	if chirpID == "" {
+		respondWithError(w, http.StatusBadRequest, "Chirp ID is required")
+		return
+	}
+
+	id, err := uuid.Parse(chirpID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Chirp ID format")
+		return
+	}
+
+	dbChirp, err := cfg.dbqueries.GetChirpByID(r.Context(), id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			respondWithError(w, http.StatusNotFound, "Chirp not found")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Could not retrieve chirp")
+		return
+	}
+
+	chirp := Chirp{
+		ID:        dbChirp.ID,
+		Body:      dbChirp.Body,
+		UserID:    dbChirp.UserID,
+		CreatedAt: dbChirp.CreatedAt.Time,
+		UpdatedAt: dbChirp.UpdatedAt.Time,
+	}
+
+	resp, err := json.Marshal(chirp)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not marshal chirp")
 		return
 	}
 	respondWithJSON(w, http.StatusOK, resp)

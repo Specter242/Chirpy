@@ -115,6 +115,34 @@ func (q *Queries) GetAllChirps(ctx context.Context, arg GetAllChirpsParams) ([]G
 	return items, nil
 }
 
+const getChirpByID = `-- name: GetChirpByID :one
+SELECT c.id, c.created_at, c.updated_at, c.body, u.id AS user_id
+FROM chirps c
+JOIN users u ON c.user_id = u.id
+WHERE c.id = $1
+`
+
+type GetChirpByIDRow struct {
+	ID        uuid.UUID
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+	Body      string
+	UserID    uuid.UUID
+}
+
+func (q *Queries) GetChirpByID(ctx context.Context, id uuid.UUID) (GetChirpByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getChirpByID, id)
+	var i GetChirpByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Body,
+		&i.UserID,
+	)
+	return i, err
+}
+
 const reset = `-- name: Reset :exec
 TRUNCATE TABLE chirps, users RESTART IDENTITY CASCADE
 `

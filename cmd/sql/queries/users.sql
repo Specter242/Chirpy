@@ -26,5 +26,11 @@ JOIN users u ON c.user_id = u.id
 ORDER BY c.created_at ASC
 LIMIT $1 OFFSET $2;
 
+-- name: GetChirpByID :one
+SELECT c.id, c.created_at, c.updated_at, c.body, u.id AS user_id
+FROM chirps c
+JOIN users u ON c.user_id = u.id
+WHERE c.id = $1;
+
 -- name: Reset :exec
 TRUNCATE TABLE chirps, users RESTART IDENTITY CASCADE;
